@@ -13,53 +13,55 @@
 # limitations under the License.
 
 # Usage:
-# 	[IMG_REPO=gcr.io/google_containers/dummy-ingress-controller] [TAG=v1.0.0] make (compile|lint|unit-test|e2e-test|docs-serve|docs-deploy)
+# 	[PREFIX=gcr.io/google_containers/dummy-ingress-controller] [ARCH=amd64] [TAG=1.1] make (server|container|push)
 
-GOOS?=linux
-GOARCH?=amd64
+all: container
+
+TAG?=v1.1.4
+PREFIX?=amazon/aws-alb-ingress-controller
+ARCH?=amd64
+OS?=linux
+PKG=github.com/kubernetes-sigs/aws-alb-ingress-controller
+REPO_INFO=$(shell git config --get remote.origin.url)
+GO111MODULE=on
+GOPROXY=direct
 GOBIN:=$(shell pwd)/.bin
 
-IMG_REPO?=amazon/aws-alb-ingress-controller
-IMG_TAG?=v1.1.9
-GIT_REPO=$(shell git config --get remote.origin.url)
-GIT_COMMIT=$(shell git rev-parse --short HEAD)
+.EXPORT_ALL_VARIABLES:
 
+ifndef GIT_COMMIT
+  GIT_COMMIT := git-$(shell git rev-parse --short HEAD)
+endif
 
-VERSION_PKG=github.com/kubernetes-sigs/aws-alb-ingress-controller/version
-VERSION_LD_FLAGS=-X $(VERSION_PKG).RELEASE=$(IMG_TAG) -X $(VERSION_PKG).REPO=$(GIT_REPO) -X $(VERSION_PKG).COMMIT=$(GIT_COMMIT)
-COMPILE_OUTPUT?=controller
+LDFLAGS=-X $(PKG)/version.COMMIT=$(GIT_COMMIT) -X $(PKG)/version.RELEASE=$(TAG) -X $(PKG)/version.REPO=$(REPO_INFO)
 
-all: compile
+server: cmd/main.go
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -a -installsuffix cgo -ldflags '-s -w $(LDFLAGS)' -o server ./cmd
 
-.PHONY: compile
-compile:
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags="-s -w $(VERSION_LD_FLAGS)" -a -installsuffix cgo  -o ${COMPILE_OUTPUT} ./cmd
+container:
+	docker build --pull -t $(PREFIX):$(TAG) .
 
-.PHONY: lint
+push:
+	docker push $(PREFIX):$(TAG)
+
+clean:
+	rm -f server
+
 lint:
-	GOBIN=$(GOBIN) go install -v github.com/golangci/golangci-lint/cmd/golangci-lint
+	go install -v github.com/golangci/golangci-lint/cmd/golangci-lint
 	$(GOBIN)/golangci-lint run --deadline=10m
 
-.PHONY: unit-test
 unit-test:
-	GOBIN=$(GOBIN) ./scripts/ci_unit_test.sh
+	@./scripts/ci_unit_test.sh
 
-.PHONY: e2e-test
 e2e-test:
-	GOBIN=$(GOBIN) go get github.com/aws/aws-k8s-tester/e2e/tester/cmd/k8s-e2e-tester@master
-	GOBIN=$(GOBIN) TESTCONFIG=./tester/test-config.yaml ${GOBIN}/k8s-e2e-tester
+	TESTCONFIG=./tester/test-config.yaml go run tester/cmd/main.go
 
-test: lint unit-test
+test:unit-test
 
 # build & preview docs
 docs-serve:
-	pipenv install && pipenv run mkdocs serve
+	pipenv run mkdocs serve
 # deploy docs to github-pages(gh-pages branch)
 docs-deploy:
-	pipenv install && pipenv run mkdocs gh-deploy
-
-release:
-	docker buildx build . --target bin \
-		--tag $(IMG_REPO):$(IMG_TAG) \
-		--push \
-		--platform linux/amd64,linux/arm64
+	pipenv run mkdocs gh-deploy

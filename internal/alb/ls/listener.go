@@ -218,9 +218,6 @@ func (controller *defaultController) buildListenerConfig(ctx context.Context, op
 		Protocol: aws.String(options.Port.Scheme),
 	}
 	if options.Port.Scheme == elbv2.ProtocolEnumHttps {
-		sslPolicy := DefaultSSLPolicy
-		_ = annotations.LoadStringAnnotation(AnnotationSSLPolicy, &sslPolicy, options.Ingress.Annotations)
-		config.SslPolicy = aws.String(sslPolicy)
 
 		var certificateARNs []string
 		_ = annotations.LoadStringSliceAnnotation(AnnotationCertificateARN, &certificateARNs, options.Ingress.Annotations)
